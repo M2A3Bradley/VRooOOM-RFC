@@ -1,0 +1,182 @@
+// ap research 2025
+// released under cc-by-4.0
+// thanks to ishmael07, projectoccupymars
+// https://www.instructables.com/How-to-Build-a-Rocket-Flight-Computer/
+// https://github.com/ishmael07/Rocketry-Flight-Computer
+// https://github.com/M2A3Bradley/VRooOOM-RFC
+
+#include <Arduino.h>
+#include <Wire.h>
+#include <MPU6050.h>
+#include <SimpleKalmanFilter.h>
+#include <SPI.h>
+#include <Adafruit_BMP3XX.h>
+#include <SD.h>
+
+// Initial defines, setup
+
+// mpu6050 define
+
+MPU6050 mpu;
+int16_t ax, ay, az; // Accelerometer raw data
+int16_t gx, gy, gz; // Gyroscope raw data
+float AccX, AccY, AccZ;    // Accelerometer scaled data
+float GyroX, GyroY, GyroZ; // Gyroscope scaled data
+float roll, pitch, yaw; // Calculated roll and pitch angles
+
+// Define Kalman filter parameters
+// define the kalman filter for roll , pitch and yaw values 
+SimpleKalmanFilter kalmanPitch(2, 2, 0.15); // Q, R, initial estimate
+SimpleKalmanFilter kalmanRoll(2, 2, 0.15);  // Q, R, initial estimate
+SimpleKalmanFilter kalmanYaw(2, 2, 0.15);   // Q , R , initial estimate
+
+// define the kalman filter for accelerometer 
+SimpleKalmanFilter kalmanAccX(2,2,0.15);
+SimpleKalmanFilter kalmanAccY(2,2,0.15);
+SimpleKalmanFilter kalmanAccZ(2,2,0.15);
+
+// bmp390 define
+
+// define the bmp280 sensor Adafruit_BMP390 bmp; // I2C
+
+Adafruit_BMP3XX bmp;
+
+// use kalman filter for better accuracy 
+SimpleKalmanFilter kalmanTemp(2 , 2 , 0.15);
+SimpleKalmanFilter kalmanPressure (2,2,0.15);
+SimpleKalmanFilter kalmanAltitude(2,2,0.15);
+
+#define ALTITUDE_REFERENCE 0 //initial altitude at ground level
+#define SEA_LEVEL_PRESSURE 1000 //Sea level pressure in hpa
+
+// sd card define
+
+File myFile;
+const int chipSelect = 10;
+void setup() {
+  Serial.begin(9600);
+  Wire.begin();
+  
+  // mpu6050 define
+    mpu.initialize();
+    mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);  // Set accelerometer range to +/- 2g
+    mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_2000); // Set gyroscope range to +/- 2000 degrees/sec
+    
+  Serial.println("MPU6050 initialized. BMP390 following.");
+  delay(4000);
+
+  // bmp390 init
+    if (!bmp.begin_I2C()) {  
+    Serial.println("Could not find a valid BMP3 sensor, check wiring!");
+    while (1);
+    }
+
+    Serial.println("BMP390 Init. SD Following.");
+  delay(4000);
+
+  // sd card init
+    if (!SD.begin(chipSelect)) {
+    Serial.println("SD card initialization failed!");
+    while (1);
+  }
+
+  // file init
+  Serial.println("SD card initialized.");
+  Serial.println("All sensors initialized.");
+
+  delay(5000);
+  Serial.println("All sensors initialized. Logging starting.");
+
+}
+
+
+void loop() {  
+
+  // timer exec
+  
+  unsigned long timestamp = millis();
+
+  // Convert timestamp to time in HH:MM:SS format
+  unsigned long seconds = timestamp / 1000;
+  unsigned long minutes = seconds / 60;
+  unsigned long hours = minutes / 60;
+  unsigned long secondsSinceStart = timestamp / 1000;
+
+  // Calculate the actual time components
+    seconds = seconds % 60;
+    minutes = minutes % 60;
+    hours = hours % 24;
+  // grab raw data, mpu6050
+    mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz); // Get raw sensor data
+
+  // process raw data, mpu6050
+    AccX = (float)ax / 16384.0;
+    AccY = (float)ay / 16384.0;
+    AccZ = (float)az / 16384.0;
+
+  // Convert raw gyroscope data to degrees/second
+    GyroX = (float)gx / 131.0;
+    GyroY = (float)gy / 131.0;
+    GyroZ = (float)gz / 131.0;
+
+  // Calculate roll, pitch, and yaw angles
+  // convert the radian to degree = 180/pi
+    roll = atan2(AccY, AccZ) * 180.0 / M_PI;
+    pitch = atan(-AccX / sqrt(AccY * AccY + AccZ * AccZ)) * 180.0 / M_PI;
+    yaw = atan2(-GyroX, sqrt(GyroY * GyroY + GyroZ * GyroZ)) * 180.0 / M_PI;
+
+  // Apply Kalman filter to smooth pitch and roll angles
+    pitch = kalmanPitch.updateEstimate(pitch);
+    roll = kalmanRoll.updateEstimate(roll);
+    yaw = kalmanYaw.updateEstimate(yaw);
+
+    roll -+ 88;
+
+  // set bmp390 values
+    float Temperature_Data = bmp.readTemperature();
+    float Pressure_Data = bmp.readPressure();
+    float Altitude_Data = bmp.readAltitude(SEA_LEVEL_PRESSURE);
+
+    Temperature_Data = kalmanTemp.updateEstimate(Temperature_Data);
+    Pressure_Data = kalmanPressure.updateEstimate(Pressure_Data);
+    Altitude_Data = kalmanAltitude.updateEstimate(Altitude_Data);
+
+    Altitude_Data -= ALTITUDE_REFERENCE;
+
+    // define the accelerometer value 
+    AccX = kalmanAccX.updateEstimate(AccX);
+    AccY = kalmanAccY.updateEstimate(AccY);
+    AccZ = kalmanAccZ.updateEstimate(AccZ);
+
+    Serial.print(roll);
+    Serial.print(",");
+    Serial.print(pitch);
+    Serial.print(",");
+    Serial.print(yaw);
+
+    Serial.print(",");
+    Serial.print(AccX);
+    Serial.print(",");
+    Serial.print(AccY);
+    Serial.print(",");
+    Serial.print(AccZ);
+
+    Serial.print(",");
+    Serial.print(GyroX);
+    Serial.print(",");
+    Serial.print(GyroY);
+    Serial.print(",");
+    Serial.print(GyroZ);
+
+    Serial.print(",");
+    Serial.print(Temperature_Data);
+    Serial.print(",");
+    Serial.print(Pressure_Data);
+    Serial.print(",");
+    Serial.println(Altitude_Data);
+
+    Serial.print("Seconds: ");
+    Serial.println(secondsSinceStart);
+
+}
+
