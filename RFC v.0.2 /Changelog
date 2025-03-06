@@ -5,6 +5,9 @@ Changelog RFC v.2
 - Removed Yaw 
 - Optimized for Arduino Nano
 
+Split into two files; FCR-2 is optimized for the limited resources of a Nano Microcontroller and FCR-1 is optimized for a full ardiuno board.
+FCR-2 is the only Flight Computer that has flown!
+
 Flight Results:
 
 Failure. Breadboard disconnect - MISO pin failure on SD card reader. Codebase optimized for launch, however, physical design changes are required.
