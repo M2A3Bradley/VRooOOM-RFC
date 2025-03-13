@@ -57,7 +57,7 @@ void setup() {
 
   // sd card init
     if (!SD.begin(chipSelect)) {
-    Serial.println("SD card initialization failed!");
+    Serial.println("SD card initialization failed! Check wiring and SD Card presence!");
     while (1);
   }
 
